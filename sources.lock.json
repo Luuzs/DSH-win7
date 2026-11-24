@@ -1,0 +1,22 @@
+[
+  {
+    "directory": "dsh-win7/",
+    "source": "https://github.com/factfinding/dsh-win7",
+    "commit": "86009d8a1334bc4339a4853346c56ef7250de0f6",
+    "files": 54,
+    "git_tree": "d1cba9295f606b0a97144bb79ce4f4afa0d28eae"
+  },
+  {
+    "directory": "dsh-win7/deepseek-harness/",
+    "source": "https://github.com/factfinding/deepseek-harness",
+    "commit": "c1aab87501e5e41c4827253b281dcf8a8c0fe616",
+    "files": 21082,
+    "git_tree": "077d0fdc754f62dddbc20464ce70ca63ffd547b9"
+  },
+  {
+    "source": "https://github.com/e3kskoy7wqk/Electron-for-windows-7",
+    "commit": "1086a0a7c6b7105f300a4af8724e6d996ce3c347",
+    "subdirectory": "v44.2.0",
+    "distribution": "external dependency"
+  }
+]

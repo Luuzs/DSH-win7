@@ -1,0 +1,57 @@
+[
+  {
+    "id": "llm-pi-ai",
+    "config": {
+      "providers": {
+        "intranet-openai": {
+          "displayName": "Intranet OpenAI compatible",
+          "api": "openai-completions",
+          "baseURL": "http://@@MODEL_IP@@:@@MODEL_PORT@@/v1",
+          "apiKeyEnv": "INTRANET_LLM_API_KEY",
+          "compat": {
+            "supportsStore": false,
+            "supportsDeveloperRole": false,
+            "supportsReasoningEffort": false,
+            "supportsUsageInStreaming": false,
+            "maxTokensField": "max_tokens"
+          },
+          "models": [
+            {
+              "id": "@@MODEL_ID@@",
+              "name": "@@MODEL_ID@@",
+              "contextWindow": 150000,
+              "maxTokens": 4096,
+              "input": [
+                "text"
+              ],
+              "reasoningEfforts": false
+            }
+          ],
+          "retryPolicy": {
+            "mode": "normal",
+            "maxRetries": 0
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "agent-default-model",
+    "config": {
+      "provider": "intranet-openai",
+      "model": "@@MODEL_ID@@"
+    }
+  },
+  {"insert": [{
+    "id": "mcp-offline-office",
+    "name": "@deepseek-ai/dsh-mcp-client",
+    "config": {
+      "serverName": "office",
+      "transport": "stdio",
+      "command": "__OFFICE_PYTHON__",
+      "args": ["__OFFICE_TOOL__", "__OFFICE_FOLDER__"],
+      "env": {"LOCALAPPDATA": "__OFFICE_LOCALAPPDATA__"},
+      "toolCallTimeoutMs": 260000
+    }
+  }]}
+]

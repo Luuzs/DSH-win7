@@ -1,0 +1,128 @@
+"""Rebuild pinned Electron resources locally and renew ASAR integrity metadata."""
+import hashlib
+import json
+import os
+import struct
+import sys
+from pathlib import Path
+
+ORIGINAL_ASAR = "5393c4486556efb91dd6fa15cedd61c9aca1ee3eaa2eb3a63d1cc8727eb3ad25"
+ORIGINAL_EXE = "b9ba1f1b10c11d9d422d441af9fa3b32b0256c6a278fb8fb45ccba3747e75606"
+sha = lambda b: hashlib.sha256(b).hexdigest()
+PREFIX = "dsh/node_modules/@deepseek-ai/"
+NODE_GUARD = r'''
+import offlineNet from "node:net";
+import offlineDns from "node:dns";
+import { spawnSync as offlineSpawn } from "node:child_process";
+import { join as offlineJoin } from "node:path";
+import { syncBuiltinESMExports as offlineSync } from "node:module";
+const offlineCheck = offlineSpawn(offlineJoin(process.env.ProgramW6432 || process.env.ProgramFiles, "DSH Intranet Policy", "network-policy.exe"),["verify"],{windowsHide:true,timeout:10000});
+if(offlineCheck.status !== 0) throw new Error("DSH network policy is missing or this Windows account is outside its scope.");
+process.env.DSH_HOME = offlineJoin(process.env.USERPROFILE,".dsh-intranet-win7");
+for (const k of Object.keys(process.env)) if (/^(all|http|https)_proxy$/i.test(k)) delete process.env[k];
+process.env.NO_PROXY="127.0.0.1,localhost,::1,@@MODEL_IP@@";
+process.env.DSH_TELEMETRY_DISABLED = "1";
+function offlineLocal(h) { return ["localhost","127.0.0.1","::1","[::1]","::ffff:127.0.0.1"].includes(String(h).toLowerCase()); }
+function offlineTarget(h,p) { return offlineLocal(h) || (h === "@@MODEL_IP@@" && Number(p) === @@MODEL_PORT@@); }
+const offlineConnect = offlineNet.Socket.prototype.connect;
+offlineNet.Socket.prototype.connect = function(...args) {
+  const a = Array.isArray(args[0]) ? args[0] : args;
+  const o = typeof a[0] === "object" ? a[0] : undefined;
+  const port = o ? o.port : a[0];
+  const host = o ? o.host : (typeof a[1] === "string" ? a[1] : undefined);
+  const path = o ? o.path : (typeof port === "string" && !/^\d+$/.test(port) ? port : undefined);
+  if (path !== undefined ? /^\\\\/.test(path) && !/^\\\\[.?]\\pipe\\/i.test(path) : !offlineTarget(host || "localhost", port)) {
+    throw Object.assign(new Error("DSH intranet destination denied"), { code: "EACCES" });
+  }
+  return offlineConnect.apply(this,args);
+};
+const offlineLookup = offlineDns.lookup;
+offlineDns.lookup = function(host,...args) {
+  if (host && !offlineLocal(host) && host !== "@@MODEL_IP@@") {
+    const cb = args[args.length-1];
+    if (typeof cb === "function") {process.nextTick(cb,Object.assign(new Error("DSH: external DNS disabled"),{code:"ENOTFOUND"}));return;}
+    throw new Error("DSH: external DNS disabled");
+  }
+  return offlineLookup.call(this,host,...args);
+};
+offlineSync();
+'''
+BROWSER_GUARD = r'''
+app.commandLine.appendSwitch("disable-background-networking");
+app.commandLine.appendSwitch("disable-component-update");
+app.commandLine.appendSwitch("dns-prefetch-disable");
+app.commandLine.appendSwitch("no-proxy-server");
+app.commandLine.appendSwitch("host-resolver-rules","MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE [::1], EXCLUDE @@MODEL_IP@@");
+app.on("session-created", (s) => {
+  s.webRequest.onBeforeRequest({urls:["http://*/*","https://*/*","ws://*/*","wss://*/*"]},(details,done)=>{
+    let allowed=false;
+    try { const u=new URL(details.url); allowed=offlineTarget(u.hostname,u.port) && (offlineLocal(u.hostname) || u.protocol==="http:"); } catch {}
+    done({cancel:!allowed});
+  });
+});
+'''
+def once(text, original, replacement):
+    if text.count(original) != 1:
+        raise ValueError("Unexpected upstream source: "+original[:60])
+    return text.replace(original,replacement)
+
+def replacements():
+    def metadata(text):
+        obj=json.loads(text)
+        if obj.pop("dshMandatoryUpdatePolicy")["origin"]!="https://policy.invalid":
+            raise ValueError("Unexpected policy metadata")
+        return json.dumps(obj,ensure_ascii=False,indent=2)+"\n"
+    return {
+        "package.json": metadata,
+        "lib/main.js": lambda s: NODE_GUARD+BROWSER_GUARD+once(s,'enabled = () => app.isPackaged && existsSync(join(process.resourcesPath, "app-update.yml"))','enabled = () => false'),
+        PREFIX+"dsh-desktop-host/lib/cli.js": lambda s:NODE_GUARD+s,
+        PREFIX+"dsh-web-app/cordis.patch.yml": lambda s:once(s,"        enabled: true\n        appVersion:","        enabled: false\n        appVersion:"),
+        PREFIX+"dsh-client-product-analytics/lib/index.js": lambda s:once(s,"return this.active && this.config.enabled.get();","return false;"),
+    }
+
+def packed(nodes,prefix=""):
+    for name,row in nodes.items():
+        key=prefix+name
+        if "files" in row:yield from packed(row["files"],key+"/")
+        elif "offset" in row:yield key,row
+
+def harden(app):
+    arch=app/"resources/app.asar"
+    exe=app/"DeepSeek Harness.exe"
+    with arch.open("rb") as f:
+        if hashlib.file_digest(f,"sha256").hexdigest()!=ORIGINAL_ASAR:
+            raise ValueError("Reinstall the pinned DSH package before applying this revision.")
+    binary=exe.read_bytes()
+    if sha(binary)!=ORIGINAL_EXE:raise ValueError("Unexpected desktop executable")
+    changes=replacements(); body=arch.with_suffix(".body.tmp")
+    new=arch.with_suffix(".new");newexe=exe.with_suffix(".new")
+    try:
+        with arch.open("rb") as f, body.open("wb") as blob:
+            _,length,_,n=struct.unpack("<4I",f.read(16)); head=f.read(n)
+            old_hash=sha(head).encode(); tree=json.loads(head)
+            for key,row in sorted(packed(tree["files"]),key=lambda i:int(i[1]["offset"])):
+                f.seek(8+length+int(row["offset"]))
+                data=f.read(row["size"])
+                if key in changes:
+                    data=changes.pop(key)(data.decode("utf-8")).encode("utf-8")
+                    integrity=row["integrity"]
+                    k=integrity["blockSize"]
+                    integrity["hash"]=sha(data)
+                    integrity["blocks"]=[sha(data[i:i+k]) for i in range(0,len(data),k)]
+                row["offset"]=str(blob.tell());row["size"]=len(data)
+                blob.write(data)
+        if changes:raise ValueError("Missing upstream resources")
+        header=json.dumps(tree,separators=(",",":"),ensure_ascii=False).encode("utf-8")
+        pad=(-len(header))%4
+        with new.open("wb") as out,body.open("rb") as src:
+            import shutil
+            out.write(struct.pack("<4I",4,len(header)+8+pad,len(header)+4+pad,len(header)))
+            out.write(header+b"\0"*pad);shutil.copyfileobj(src,out)
+        if binary.count(old_hash)!=1:raise ValueError("Unexpected embedded ASAR descriptor")
+        newexe.write_bytes(binary.replace(old_hash,sha(header).encode()))
+        (app/"resources/app-update.yml").unlink(missing_ok=True)
+        os.replace(new,arch);os.replace(newexe,exe)
+        print("Disabled usage statistics, both update policies, external Chromium and Node destinations.")
+    finally:
+        for p in (body,new,newexe):p.unlink(missing_ok=True)
+if __name__=="__main__":harden(Path(sys.argv[1]))

@@ -1,0 +1,28 @@
+@echo off
+setlocal
+"%ProgramFiles%\DSH Intranet Policy\network-policy.exe" verify
+if errorlevel 1 (
+  echo The DSH network policy is missing or this Windows login is outside its scope.
+  pause
+  exit /b 1
+)
+set "DSH_HOME=%USERPROFILE%\.dsh-intranet-win7"
+set "DSH_TELEMETRY_DISABLED=1"
+set "POWERSHELL_TELEMETRY_OPTOUT=1"
+set "POWERSHELL_UPDATECHECK=Off"
+set "DOTNET_CLI_TELEMETRY_OPTOUT=1"
+set "PIP_DISABLE_PIP_VERSION_CHECK=1"
+set "PIP_NO_INDEX=1"
+set "NPM_CONFIG_OFFLINE=true"
+set "NPM_CONFIG_UPDATE_NOTIFIER=false"
+set "NO_PROXY=localhost,127.0.0.1,@@MODEL_IP@@,%NO_PROXY%"
+if not defined INTRANET_LLM_API_KEY set "INTRANET_LLM_API_KEY=intranet-local"
+set "DSHAPP=%LOCALAPPDATA%\Programs\DSH-Win7\DeepSeek Harness.exe"
+set "DSHRUNTIME=%LOCALAPPDATA%\Programs\DSH-Win7\resources\runtime"
+set "PATH=%DSHRUNTIME%\pwsh;%DSHRUNTIME%\primary-runtime\dependencies\python;%DSHRUNTIME%\primary-runtime\dependencies\node\bin;%PATH%"
+if not exist "%DSHAPP%" (
+  echo Run step 02 in this Windows account first.
+  pause
+  exit /b 1
+)
+start "" "%DSHAPP%" "--user-data-dir=%LOCALAPPDATA%\DSH-Intranet-Desktop" --lang=zh-CN

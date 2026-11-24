@@ -1,0 +1,56 @@
+"""End-to-end DSH check using a new scratch directory and a random file."""
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import tempfile
+import sys
+
+def check(overlay=None):
+    work = Path(tempfile.mkdtemp(prefix="DSH-Win7-model-"))
+    marker = "WIN7-" + secrets.token_hex(8).upper()
+    (work/"acceptance.txt").write_text(marker, encoding="ascii")
+    env = dict(os.environ, DSH_HOME=str(Path.home()/".dsh-intranet-win7"))
+    env.setdefault("INTRANET_LLM_API_KEY", "intranet-local")
+    env["DSH_TELEMETRY_DISABLED"] = "1"
+    env["NO_PROXY"] = ",".join(filter(None, [env.get("NO_PROXY"), "127.0.0.1", "localhost", "@@MODEL_IP@@"]))
+    app = Path(env["LOCALAPPDATA"])/"Programs/DSH-Win7"
+    # Same entry point and Electron Node mode as the installed dsh.cmd.
+    env["ELECTRON_RUN_AS_NODE"] = "1"
+    cli = app/"resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js"
+    args = [str(app/"DeepSeek Harness.exe"), "--expose-internals", str(cli),
+            "--profile", "headless"]
+    if overlay:
+        args += ["--patch", str(overlay)]
+    args += ["--json", "--permission-mode", "workspace-write", "--approval-policy", "never",
+             "Read acceptance.txt with the read tool. Create result.txt in the working directory with exactly the same text using a file writing tool. Reply with the exact text that you read."]
+    print("Working directory:", work, flush=True)
+    with (work/"events.jsonl").open("wb") as out, (work/"errors.log").open("wb") as err:
+        result = subprocess.run(args, env=env, cwd=work, stdout=out, stderr=err, timeout=240)
+    events=[]
+    for line in (work/"events.jsonl").read_text(encoding="utf-8",errors="replace").splitlines():
+        try: events.append(json.loads(line))
+        except ValueError: pass
+    types=[e.get("type") for e in events if isinstance(e,dict)]
+    def found(kinds):
+        return any(e.get("type") in kinds and marker in json.dumps(e) for e in events if isinstance(e,dict))
+    print("DSH exit:",result.returncode,"event types:", sorted(set(str(t) for t in types)), flush=True)
+    tool = found(["tool_result"])
+    response = found(["assistant","assistant_message","content","text","message","text_delta"])
+    # Streaming clients can split the marker across multiple assistant deltas.
+    assistant = "".join(e.get("text","") for e in events if isinstance(e,dict) and e.get("type") in ("text","text_delta","content") and isinstance(e.get("text"),str))
+    response = response or marker in assistant
+    written=work/"result.txt"
+    copied=written.is_file() and written.read_text(encoding="utf-8-sig").strip()==marker
+    if result.returncode or not (tool and response and copied):
+        print("Inspect events.jsonl and errors.log in the working directory.")
+        for event in events:
+            if isinstance(event,dict) and event.get("type")=="error":
+                print("DSH error:", str(event.get("message", event.get("error",event)))[:1200])
+        print((work/"errors.log").read_text(encoding="utf-8",errors="replace")[-900:])
+        raise RuntimeError(f"DSH tool result={tool}; verified file write={copied}; assistant response={response}")
+    print("PASS - real DSH file read, file write, and streamed assistant reply matched the random marker.")
+
+if __name__ == "__main__":
+    check()
