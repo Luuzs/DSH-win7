@@ -1,0 +1,181 @@
+--- /dev/null
++++ b/apps/desktop/intranet-bootstrap.mjs
+@@ -0,0 +1,51 @@
++
++import offlineNet from "node:net";
++import offlineDns from "node:dns";
++import { spawnSync as offlineSpawn } from "node:child_process";
++import { join as offlineJoin } from "node:path";
++import { syncBuiltinESMExports as offlineSync } from "node:module";
++const offlineCheck = offlineSpawn(offlineJoin(process.env.ProgramW6432 || process.env.ProgramFiles, "DSH Intranet Policy", "network-policy.exe"),["verify"],{windowsHide:true,timeout:10000});
++if(offlineCheck.status !== 0) throw new Error("DSH network policy is missing or this Windows account is outside its scope.");
++process.env.DSH_HOME = offlineJoin(process.env.USERPROFILE,".dsh-intranet-win7");
++for (const k of Object.keys(process.env)) if (/^(all|http|https)_proxy$/i.test(k)) delete process.env[k];
++process.env.NO_PROXY="127.0.0.1,localhost,::1,192.0.2.10";
++process.env.DSH_TELEMETRY_DISABLED = "1";
++function offlineLocal(h) { return ["localhost","127.0.0.1","::1","[::1]","::ffff:127.0.0.1"].includes(String(h).toLowerCase()); }
++function offlineTarget(h,p) { return offlineLocal(h) || (h === "192.0.2.10" && Number(p) === 8080); }
++const offlineConnect = offlineNet.Socket.prototype.connect;
++offlineNet.Socket.prototype.connect = function(...args) {
++  const a = Array.isArray(args[0]) ? args[0] : args;
++  const o = typeof a[0] === "object" ? a[0] : undefined;
++  const port = o ? o.port : a[0];
++  const host = o ? o.host : (typeof a[1] === "string" ? a[1] : undefined);
++  const path = o ? o.path : (typeof port === "string" && !/^\d+$/.test(port) ? port : undefined);
++  if (path !== undefined ? /^\\\\/.test(path) && !/^\\\\[.?]\\pipe\\/i.test(path) : !offlineTarget(host || "localhost", port)) {
++    throw Object.assign(new Error("DSH intranet destination denied"), { code: "EACCES" });
++  }
++  return offlineConnect.apply(this,args);
++};
++const offlineLookup = offlineDns.lookup;
++offlineDns.lookup = function(host,...args) {
++  if (host && !offlineLocal(host) && host !== "192.0.2.10") {
++    const cb = args[args.length-1];
++    if (typeof cb === "function") {process.nextTick(cb,Object.assign(new Error("DSH: external DNS disabled"),{code:"ENOTFOUND"}));return;}
++    throw new Error("DSH: external DNS disabled");
++  }
++  return offlineLookup.call(this,host,...args);
++};
++offlineSync();
++
++import { app as intranetApp } from 'electron';
++
++intranetApp.commandLine.appendSwitch("disable-background-networking");
++intranetApp.commandLine.appendSwitch("disable-component-update");
++intranetApp.commandLine.appendSwitch("dns-prefetch-disable");
++intranetApp.commandLine.appendSwitch("no-proxy-server");
++intranetApp.commandLine.appendSwitch("host-resolver-rules","MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE [::1], EXCLUDE 192.0.2.10");
++intranetApp.on("session-created", (s) => {
++  s.webRequest.onBeforeRequest({urls:["http://*/*","https://*/*","ws://*/*","wss://*/*"]},(details,done)=>{
++    let allowed=false;
++    try { const u=new URL(details.url); allowed=offlineTarget(u.hostname,u.port) && (offlineLocal(u.hostname) || u.protocol==="http:"); } catch {}
++    done({cancel:!allowed});
++  });
++});
+--- /dev/null
++++ b/apps/desktop-host/intranet-bootstrap.mjs
+@@ -0,0 +1,36 @@
++
++import offlineNet from "node:net";
++import offlineDns from "node:dns";
++import { spawnSync as offlineSpawn } from "node:child_process";
++import { join as offlineJoin } from "node:path";
++import { syncBuiltinESMExports as offlineSync } from "node:module";
++const offlineCheck = offlineSpawn(offlineJoin(process.env.ProgramW6432 || process.env.ProgramFiles, "DSH Intranet Policy", "network-policy.exe"),["verify"],{windowsHide:true,timeout:10000});
++if(offlineCheck.status !== 0) throw new Error("DSH network policy is missing or this Windows account is outside its scope.");
++process.env.DSH_HOME = offlineJoin(process.env.USERPROFILE,".dsh-intranet-win7");
++for (const k of Object.keys(process.env)) if (/^(all|http|https)_proxy$/i.test(k)) delete process.env[k];
++process.env.NO_PROXY="127.0.0.1,localhost,::1,192.0.2.10";
++process.env.DSH_TELEMETRY_DISABLED = "1";
++function offlineLocal(h) { return ["localhost","127.0.0.1","::1","[::1]","::ffff:127.0.0.1"].includes(String(h).toLowerCase()); }
++function offlineTarget(h,p) { return offlineLocal(h) || (h === "192.0.2.10" && Number(p) === 8080); }
++const offlineConnect = offlineNet.Socket.prototype.connect;
++offlineNet.Socket.prototype.connect = function(...args) {
++  const a = Array.isArray(args[0]) ? args[0] : args;
++  const o = typeof a[0] === "object" ? a[0] : undefined;
++  const port = o ? o.port : a[0];
++  const host = o ? o.host : (typeof a[1] === "string" ? a[1] : undefined);
++  const path = o ? o.path : (typeof port === "string" && !/^\d+$/.test(port) ? port : undefined);
++  if (path !== undefined ? /^\\\\/.test(path) && !/^\\\\[.?]\\pipe\\/i.test(path) : !offlineTarget(host || "localhost", port)) {
++    throw Object.assign(new Error("DSH intranet destination denied"), { code: "EACCES" });
++  }
++  return offlineConnect.apply(this,args);
++};
++const offlineLookup = offlineDns.lookup;
++offlineDns.lookup = function(host,...args) {
++  if (host && !offlineLocal(host) && host !== "192.0.2.10") {
++    const cb = args[args.length-1];
++    if (typeof cb === "function") {process.nextTick(cb,Object.assign(new Error("DSH: external DNS disabled"),{code:"ENOTFOUND"}));return;}
++    throw new Error("DSH: external DNS disabled");
++  }
++  return offlineLookup.call(this,host,...args);
++};
++offlineSync();
+--- a/apps/desktop/tsdown.config.ts
++++ b/apps/desktop/tsdown.config.ts
+@@ -54,6 +54,7 @@
+   },
+   {
+     entry: ['lib/types/main.js'],
++    outputOptions: { banner: readFileSync(new URL('./intranet-bootstrap.mjs', import.meta.url), 'utf8') },
+     plugins: [packagedImportsPlugin(mainProcessImports)],
+     define: clientVersionDefine,
+     onSuccess: async () => {
+--- a/apps/desktop-host/tsdown.config.ts
++++ b/apps/desktop-host/tsdown.config.ts
+@@ -1,10 +1,11 @@
++import { readFileSync } from 'node:fs'
+ import { defineConfig } from 'tsdown'
+ 
+ export default defineConfig(['index', 'cli'].map(name => ({
+   entry: ['lib/types/' + name + '.js'],
+   outDir: 'lib',
+   format: ['esm'] as const,
+-  outputOptions: { codeSplitting: false },
++  outputOptions: { codeSplitting: false, banner: name === 'cli' ? readFileSync(new URL('./intranet-bootstrap.mjs', import.meta.url), 'utf8') : '' },
+   platform: 'node',
+   target: 'es2024',
+   fixedExtension: false,
+--- a/apps/desktop/src/update-coordinator.ts
++++ b/apps/desktop/src/update-coordinator.ts
+@@ -1,7 +1,5 @@
+ /** User-authorized downloads and separate installation of one version-bound Desktop release. */
+ 
+-import { existsSync } from 'node:fs'
+-import { join } from 'node:path'
+ import { app } from 'electron'
+ import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo, type UpdateCheckResult } from 'electron-updater'
+ import { gt, valid } from 'semver'
+@@ -61,7 +59,7 @@
+     private readonly publish: (state: DesktopUpdateState) => DesktopUpdateState,
+     private readonly beforeRestart: () => Promise<boolean>,
+     private readonly updater: AppUpdater = autoUpdater,
+-    private readonly enabled: () => boolean = () => app.isPackaged && existsSync(join(process.resourcesPath, 'app-update.yml')),
++    private readonly enabled: () => boolean = () => false,
+     private readonly currentVersion: () => string = () => app.getVersion(),
+     private readonly downloadResult?: (success: boolean, reason?: string) => void,
+     private channel: DesktopUpdateChannel = 'nightly',
+--- a/apps/desktop/scripts/electron-builder-config.mjs
++++ b/apps/desktop/scripts/electron-builder-config.mjs
+@@ -66,7 +66,7 @@
+   if (skipNotarization && (unsigned || resolvedPlatform !== 'darwin')) throw new Error('Skipping notarization requires a signed macOS build')
+   const packagesMacOS = targetPlatform === 'darwin' || (targetPlatform === undefined && hostPlatform === 'darwin')
+   const packagesWindows = resolvedPlatform === 'win32'
+-  const policy = packagesMacOS && unsigned ? undefined : resolveDesktopPolicyEnvironment(env)
++  const policy = resolvedPlatform === 'win32' || (packagesMacOS && unsigned) ? undefined : resolveDesktopPolicyEnvironment(env)
+   if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
+   const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
+   if (packagesMacOS && !unsigned && !skipNotarization) resolveMacOSNotarizationEnvironment(env)
+@@ -99,8 +99,8 @@
+   if (windowsSigner !== undefined) {
+     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
+   }
+-  const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+-  const win7Feed = unsigned && resolvedPlatform === 'win32' ? win7UpdateFeed(env) : undefined
++  const update = resolvedPlatform === 'win32' || unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
++  const win7Feed = undefined // Intranet builds have no update feed.
+   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
+   // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
+   // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
+--- a/packages/client/product-analytics/src/index.ts
++++ b/packages/client/product-analytics/src/index.ts
+@@ -64,7 +64,7 @@
+    * @returns whether this Host currently accepts Desktop analytics.
+    */
+   @Remote
+-  enabled(): boolean { return this.active && this.config.enabled.get() }
++  enabled(): boolean { return false }
+ 
+   /**
+    * Stream the effective policy initially and after live configuration edits.
+--- a/packages/bundle/web-app/cordis.patch.yml
++++ b/packages/bundle/web-app/cordis.patch.yml
+@@ -50,7 +50,7 @@
+       name: '@deepseek-ai/dsh-client-product-analytics'
+       disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
+       config:
+-        enabled: true
++        enabled: false
+         appVersion: !!js process.env.DSH_CLIENT_VERSION
+ 
+     # Host-owned authorization sampled at Agent creation. The Plugins page
