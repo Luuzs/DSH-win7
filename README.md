@@ -6,7 +6,7 @@
 | --- | --- |
 | Electron 桌面、桌面宿主、模型对话和工具 | [apps](dsh-win7/deepseek-harness/apps) 和 [packages](dsh-win7/deepseek-harness/packages) |
 | Win7 原生兼容层、移植补丁、完整上游打包过程 | [shim](dsh-win7/shim)、[win7-fixes](dsh-win7/win7-fixes)、[移植文档](dsh-win7/docs) |
-| 使用统计、软件更新和请求目标的改动 | [TypeScript 源码改动生成器](tools/apply-source.py) 和 [发布文件改动生成器](intranet/templates/tools/harden-app.py.in) |
+| 使用统计、软件更新和请求目标的改动 | [可直接审阅的完整源码差异](intranet/example-source.patch)、[配置生成器](tools/apply-source.py) 和 [发行文件加固](intranet/templates/tools/harden-app.py.in) |
 | 系统级出站规则 | [Windows Filtering Platform 的 C 实现](intranet/templates/tools/network-policy.c.in) |
 | 部署、模型配置和验收 | [离线安装与验收工具](intranet/templates) |
 | Word、PowerPoint、Excel 和 PDF 生成 | [文档生成器](intranet/templates/tools/make-documents.py) 和 [本地 MCP 工具](intranet/templates/tools/office-tool.py) |
@@ -25,7 +25,10 @@ cd dsh-win7/deepseek-harness
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm run build:lib
 pnpm run build:web
+pnpm run build:desktop
 ```
+
+回到仓库根目录，运行 `python tools/check-build.py --ip 192.0.2.10 --port 8080` 可复核桌面和命令行入口含有本次配置的网络限制，以及 Web 入口已生成。部署到实际机器后，再用 Win7 上的对话与网络测试检查运行行为。
 
 离线交付附带锁定版本的 Windows x64 依赖缓存。解压后，将安装命令替换成下面这一行。其中两个目录都应使用绝对路径。
 
@@ -34,6 +37,8 @@ pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir D:\build-d
 ```
 
 上游的 Win7 Electron、原生插件和系统运行时有各自的构建步骤。使用 Win7 桌面时请按 [Win7 移植项目](dsh-win7/README.md) 的构建及适配说明准备这些组件。仅运行前端编译命令不能生成完整的 Win7 安装包。
+
+本版已在 Windows x64 上编译应用库、Web 界面、Electron 桌面和 Win7 兼容 DLL。重新编译的系统出站策略程序，其机器代码段与离线发行物一致。Win7 兼容 DLL 的 20 个导出名称和序号一致，机器代码段的摘要与社区发行物不同。把相同部署参数重新应用到固定的上游发行文件后，重新生成的桌面 EXE 和 ASAR 的 SHA-256 均与实际交付物一致。可在克隆后运行 `python tools/verify-upstream.py` 检查整个应用和移植项目是否与锁定的 Git 文件树一致。
 
 ### 复核当前发布文件
 
@@ -45,8 +50,10 @@ python tools/assemble.py --original D:\upstream-desktop --media D:\offline-media
 
 程序先检查上游主程序、ASAR 和依赖介质的摘要，再生成 `out/kit`。如果只想审查网络策略，可以从源码模板检查放行目的地，并在已部署的 Win7 中运行 `05-check-model.cmd` 执行对话及文件读写测试。整机模式作用于所有用户，专用账户模式作用于本机标准账户 DSHWork；本地回环和系统获取 DHCP 地址所需流量有单独规则。
 
+修改虚拟机时，先在桌面中正常关机，再使用 `player/export-ova.py` 将工作盘导出。将新 OVA 和已解压的播放器目录交给 `player/package-player.py`，可重新制作带有新摘要的桌面启动包。两个工具的 `--help` 提供参数说明。
+
 ### 来源与许可证
 
-上游版本、提交及导入范围见 [sources.lock.json](sources.lock.json)。DSH 主项目与 Win7 移植的许可证分别保留在 [主项目 LICENSE](dsh-win7/deepseek-harness/LICENSE) 和 [移植项目 LICENSE](dsh-win7/LICENSE)。Electron、Chromium、LibreOffice、Python、Node.js 及其他依赖保留各自许可证。Windows 7、微软系统更新和 Visual C++ 运行库使用微软发布的文件，系统授权由部署单位提供。
+上游版本、提交及导入范围见 [sources.lock.json](sources.lock.json)。离线交付附带的第三方源码和 npm 发布物的地址与 SHA-256 见 [dependencies.lock.json](dependencies.lock.json)，其中 LibreOffice Kit 0.2.3 采用核验过的 npm 发布物，其对应的 TypeScript 源码标签尚未核实。DSH 主项目与 Win7 移植的许可证分别保留在 [主项目 LICENSE](dsh-win7/deepseek-harness/LICENSE) 和 [移植项目 LICENSE](dsh-win7/LICENSE)。Electron、Chromium、LibreOffice、Python、Node.js 及其他依赖保留各自许可证。Windows 7、微软系统更新和 Visual C++ 运行库使用微软发布的文件，系统授权由部署单位提供。
 
 交付版由上游未签名的 Windows 桌面发行物制作。源码、锁定版本、实际发布的应用代码及验收记录可用于独立检查。完整 Electron、Chromium 和所有第三方原生组件从源码编译至逐字节相同的 Windows 安装包，尚未完成验证。
